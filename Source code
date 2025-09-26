@@ -1,0 +1,768 @@
+import pymysql
+import pymysql.cursors
+import tkinter as tk
+from tkinter import ttk, Menu, CENTER, W, E, END
+from tkcalendar import DateEntry
+from datetime import datetime, date
+from PIL import Image, ImageTk
+
+# ---------- DATABASE CONFIG ----------
+DB_HOST = 'localhost'
+DB_NAME = 'work'
+DB_USER = 'root'
+DB_PASS = 'charmi'
+
+# Admin password
+ADMIN_PASS = "admin123"
+
+# ---------- DATABASE HELPER ---------- 
+def get_connection():
+    """Return a pymysql connection."""
+    return pymysql.connect(
+        host=DB_HOST,
+        user=DB_USER,
+        password=DB_PASS,
+        db=DB_NAME,
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
+
+
+# ---------- MAIN APP ----------
+class CRUDApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Chozha Interiors and Exteriors")
+        self.geometry("1000x650")
+        self.configure(bg="#f8f9fa")
+
+        # Style
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure("Treeview", font=("Segoe UI", 11), rowheight=28)
+        style.configure("Treeview.Heading", font=("Segoe UI", 12, "bold"))
+
+        # Header Frame for logo and title
+        header_frame = tk.Frame(self, bg="#f8f9fa")
+        header_frame.pack(pady=(20, 0), fill="x")
+
+        # ---------logo---------
+        try:
+            logo_img = Image.open(r"C:\Users\sjsur\OneDrive\Desktop\logoiconfooter.png")
+            logo_img = logo_img.resize((170, 70))
+            logo_photo = ImageTk.PhotoImage(logo_img)
+            logo_label = tk.Label(header_frame, image=logo_photo, bg="#f8f9fa")
+            logo_label.image = logo_photo
+            logo_label.pack(side=tk.LEFT, padx=(10, 20))
+        except Exception:
+            # silently ignore missing logo, but leave space for title
+            pass
+
+        # Title
+        title_label = tk.Label(
+            header_frame,
+            text="CHOZHA INTERIORS AND EXTERIORS",
+            fg="#212529",
+            bg="#f8f9fa",
+            font=("Segoe UI", 24, "bold")
+        )
+        title_label.pack(side=tk.LEFT, expand=True)
+        title_label.pack_configure(anchor=CENTER)
+
+        # ---------- MAIN PAGE CONTENT ----------
+        self.home_frame = tk.Frame(self, bg="#f8f9fa")
+        # add subtle border/relief to the home content
+        content_box = tk.Frame(self.home_frame, bg="#f8f9fa", bd=1, relief="groove")
+        content_box.pack(padx=20, pady=20, fill="both", expand=True)
+
+        # Top image + text
+        top_frame = tk.Frame(content_box, bg="#f8f9fa")
+        top_frame.pack(padx=20, pady=(20, 10), fill="x")
+
+
+        # Add descriptive text next to the image
+        text_label = tk.Label(
+    top_frame,
+    text="Design Beyond Boundaries. Style That Speaks.\n\n"
+         "Welcome to Chozha Interiors and Exteriors — where your space becomes a statement.\n"
+         "We don’t just decorate; we transform. From sleek interiors to striking exteriors,\n"
+         "we craft environments that inspire, impress, and endure.\n\n"
+        ,
+    wraplength=600,
+    justify="left",
+    font=("cascadia mono", 10), bg="#f8f9fa"
+)
+        text_label.pack(side=tk.LEFT, padx=8, pady=20)
+
+        # Second image + tagline below the first
+        bottom_frame = tk.Frame(content_box, bg="#f8f9fa")
+        bottom_frame.pack(padx=20, pady=(10, 20), fill="x")
+
+        tagline = tk.Label(bottom_frame, text="Trusted since 2006 — Quality you can feel.", font=("Segoe UI", 12, "italic"), bg="#f8f9fa")
+        tagline.pack(side=tk.LEFT, padx=12, pady=10)
+
+        # Footer area inside home
+        footer = tk.Label(self.home_frame, text="Contact: +91-XXXXXXXXXX     |     Email: contact@chozha.com",
+                          bg="#f8f9fa", font=("Segoe UI", 10))
+        footer.pack(side=tk.BOTTOM, pady=(0, 8))
+
+        # Menu
+        menubar = Menu(self)
+
+        home_menu = Menu(menubar, tearoff=0)
+        home_menu.add_command(label="Home", command=self.show_home)
+        menubar.add_cascade(label="Home", menu=home_menu)
+
+        orders_menu = Menu(menubar, tearoff=0)
+        orders_menu.add_command(label="New Order", command=self.add_order_window)
+        orders_menu.add_command(label="Update Order", command=self.update_order_window)
+        orders_menu.add_command(label="Cancel Order", command=self.delete_order_window)
+        orders_menu.add_separator()
+        orders_menu.add_command(label="Exit", command=self.quit)
+        menubar.add_cascade(label="Orders", menu=orders_menu)
+
+        admin_menu = Menu(menubar, tearoff=0)
+        admin_menu.add_command(label="View Orders", command=self.view_orders)
+        admin_menu.add_command(label="Past Orders", command=self.view_past_orders)
+        admin_menu.add_separator()
+        admin_menu.add_command(label="Exit", command=self.quit)
+        menubar.add_cascade(label="Admin", menu=admin_menu)
+
+        self.config(menu=menubar)
+
+        # Form frame (where CRUD forms appear)
+        self.form_frame = tk.Frame(self, bg="#f8f9fa")
+        self.form_frame.pack(fill="both", expand=True, padx=40, pady=20)
+
+        # status area reused
+        self.status_label = tk.Label(self.form_frame, text="", bg="#f8f9fa", font=("Segoe UI", 11))
+        self.status_label.place_forget()
+
+        # start with home visible and form hidden
+        self.home_frame.pack(fill="both", expand=True)
+        self.form_frame.pack_forget()
+
+    # helper to show home
+    def show_home(self):
+        self.clear_form_frame()
+        self.form_frame.pack_forget()
+        self.home_frame.pack(fill="both", expand=True)
+
+    def clear_form_frame(self):
+        for w in self.form_frame.winfo_children():
+            w.destroy()
+        # recreate status_label placeholder
+        try:
+            self.status_label.destroy()
+        except Exception:
+            pass
+        self.status_label = tk.Label(self.form_frame, text="", bg="#f8f9fa", font=("Segoe UI", 11))
+        self.status_label.place_forget()
+
+    def set_status(self, text, fg="black"):
+        try:
+            self.status_label.destroy()
+        except Exception:
+            pass
+        self.status_label = tk.Label(self.form_frame, text=text, fg=fg, bg="#f8f9fa", font=("Segoe UI", 11, "bold"))
+        self.status_label.pack(side=tk.BOTTOM, fill="x", pady=8)
+
+    # ---------- VIEW ALL ORDERS ----------
+    def view_orders(self):
+        self.home_frame.pack_forget()
+        self.form_frame.pack(fill="both", expand=True, padx=40, pady=20)
+        self.clear_form_frame()
+        tk.Label(self.form_frame, text="Enter Admin Password", font=("Segoe UI", 12), bg="#f8f9fa").grid(row=0, column=0, pady=5, sticky=W)
+        pwd_entry = ttk.Entry(self.form_frame, show="*", width=30)
+        pwd_entry.grid(row=0, column=1, padx=10)
+
+        def show_table():
+            # remove older table rows if present
+            for widget in self.form_frame.grid_slaves():
+                if int(widget.grid_info().get('row', 0)) >= 2:
+                    widget.grid_forget()
+
+            table_frame = tk.Frame(self.form_frame, bg="#ffffff", bd=1, relief="solid")
+            table_frame.grid(row=2, column=0, columnspan=3, pady=20, sticky="nsew")
+            self.form_frame.grid_rowconfigure(2, weight=1)
+            self.form_frame.grid_columnconfigure(0, weight=1)
+
+            columns = ('Order_ID', 'Firstname', 'Lastname', 'Address', 'ContactNo', 'service', 'DateRequired')
+            tree = ttk.Treeview(table_frame, columns=columns, show="headings", height=12)
+            scroll_y = ttk.Scrollbar(table_frame, orient="vertical", command=tree.yview)
+            tree.configure(yscroll=scroll_y.set)
+            scroll_y.pack(side="right", fill="y")
+            tree.pack(fill="both", expand=True)
+
+            headings = {
+                "Order_ID": "Order ID",
+                "Firstname": "First Name",
+                "Lastname": "Last Name",
+                "Address": "Address",
+                "ContactNo": "Contact Number",
+                "service": "Service",
+                "DateRequired": "Order Date"
+            }
+            for col, text in headings.items():
+                tree.heading(col, text=text)
+                tree.column(col, anchor=W, width=140)
+
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT Order_ID, Firstname, Lastname, Address, ContactNo, service, DateRequired FROM interiors where DateRequired >= CURDATE() ORDER BY Order_ID DESC")
+                rows = cursor.fetchall()
+                tree.delete(*tree.get_children())
+                for r in rows:
+                    dt = r.get('DateRequired')
+                    if isinstance(dt, (datetime, date)):
+                        dt_display = dt.strftime("%d-%m-%Y")
+                    else:
+                        dt_display = str(dt) if dt else ""
+                    tree.insert("", END, values=(r.get('Order_ID'), r.get('Firstname'), r.get('Lastname'),
+                                                 r.get('Address'), r.get('ContactNo'), r.get('service'), dt_display))
+            except Exception as e:
+                self.set_status(f"Error fetching records: {e}", fg="red")
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+        def check_password():
+            if pwd_entry.get() != ADMIN_PASS:
+                self.set_status("Access Denied: Only admin can view records.", fg="red")
+                return
+            show_table()
+            self.set_status("Records loaded.")
+
+        ttk.Button(self.form_frame, text="Submit", command=check_password).grid(row=1, column=1, pady=10, sticky=W)
+
+    # ---------- VIEW PAST ORDERS ----------
+    def view_past_orders(self):
+        self.home_frame.pack_forget()
+        self.form_frame.pack(fill="both", expand=True, padx=40, pady=20)
+        self.clear_form_frame()
+        tk.Label(self.form_frame, text="Enter Admin Password", font=("Segoe UI", 12), bg="#f8f9fa").grid(row=0, column=0, pady=5, sticky=W)
+        pwd_entry = ttk.Entry(self.form_frame, show="*", width=30)
+        pwd_entry.grid(row=0, column=1, padx=10)
+
+        def show_table():
+            for widget in self.form_frame.grid_slaves():
+                if int(widget.grid_info().get('row', 0)) >= 2:
+                    widget.grid_forget()
+
+            table_frame = tk.Frame(self.form_frame, bg="#ffffff", bd=1, relief="solid")
+            table_frame.grid(row=2, column=0, columnspan=3, pady=20, sticky="nsew")
+            self.form_frame.grid_rowconfigure(2, weight=1)
+            self.form_frame.grid_columnconfigure(0, weight=1)
+
+            columns = ('Order_ID', 'Firstname', 'Lastname', 'Address', 'ContactNo', 'service', 'DateRequired')
+            tree = ttk.Treeview(table_frame, columns=columns, show="headings", height=12)
+            scroll_y = ttk.Scrollbar(table_frame, orient="vertical", command=tree.yview)
+            tree.configure(yscroll=scroll_y.set)
+            scroll_y.pack(side="right", fill="y")
+            tree.pack(fill="both", expand=True)
+
+            headings = {
+                "Order_ID": "Order ID",
+                "Firstname": "First Name",
+                "Lastname": "Last Name",
+                "Address": "Address",
+                "ContactNo": "Contact Number",
+                "service": "Service",
+                "DateRequired": "Order Date"
+            }
+            for col, text in headings.items():
+                tree.heading(col, text=text)
+                tree.column(col, anchor=W, width=140)
+
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT Order_ID, Firstname, Lastname, Address, ContactNo, service, DateRequired FROM interiors WHERE DateRequired < CURDATE() ORDER BY DateRequired DESC")
+                rows = cursor.fetchall()
+                tree.delete(*tree.get_children())
+                for r in rows:
+                    dt = r.get('DateRequired')
+                    if isinstance(dt, (datetime, date)):
+                        dt_display = dt.strftime("%d-%m-%Y")
+                    else:
+                        dt_display = str(dt) if dt else ""
+                    tree.insert("", END, values=(r.get('Order_ID'), r.get('Firstname'), r.get('Lastname'),
+                                                 r.get('Address'), r.get('ContactNo'), r.get('service'), dt_display))
+            except Exception as e:
+                self.set_status(f"Error fetching past records: {e}", fg="red")
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+        def check_password():
+            if pwd_entry.get() != ADMIN_PASS:
+                self.set_status("Access Denied: Only admin can view records.", fg="red")
+                return
+            show_table()
+            self.set_status("Past records loaded.")
+
+        ttk.Button(self.form_frame, text="Submit", command=check_password).grid(row=1, column=1, pady=10, sticky=W)
+
+    # ---------- ADD ----------
+    def add_order_window(self):
+        self.home_frame.pack_forget()
+        self.form_frame.pack(fill="both", expand=True, padx=40, pady=20)
+        self.clear_form_frame()
+
+        center_frame = tk.Frame(self.form_frame, bg="#f8f9fa")
+        center_frame.place(relx=0.5, rely=0.5, anchor="center")
+
+        labels = ["First Name", "Last Name", "Address", "Contact Number", "Service", "Order Date"]
+        entries = {}
+        error_labels = {}
+
+        for i, lbl in enumerate(labels):
+            tk.Label(center_frame, text=lbl, font=("Segoe UI", 11), bg="#f8f9fa").grid(row=i, column=0, pady=8, sticky=E)
+            if lbl == "Service":
+                entries[lbl] = ttk.Combobox(center_frame,
+                                            values=["Interior Designing", "Painting", "Renovation",
+                                                    "Custom Furnishing", "Plumbing", "Exterior Designing"],
+                                            state="readonly", width=27)
+                entries[lbl].current(0)
+                entries[lbl].grid(row=i, column=1, pady=8, padx=10, sticky=W)
+            elif lbl == "Order Date":
+                # mindate expects a date object
+                entries[lbl] = DateEntry(center_frame, width=27, date_pattern="dd-mm-yyyy", mindate=date.today())
+                entries[lbl].grid(row=i, column=1, pady=8, padx=10, sticky=W)
+            else:
+                entries[lbl] = ttk.Entry(center_frame, width=30)
+                entries[lbl].grid(row=i, column=1, pady=8, padx=10, sticky=W)
+
+            error_labels[lbl] = tk.Label(center_frame, text="", fg="red", bg="#f8f9fa", font=("Segoe UI", 9))
+            error_labels[lbl].grid(row=i, column=2, padx=5, sticky=W)
+
+        form_status = tk.Label(center_frame, text="", bg="#f8f9fa", font=("Segoe UI", 10, "bold"))
+        form_status.grid(row=len(labels) + 1, column=0, columnspan=3, pady=8)
+
+        # --- validation functions ---
+        def validate_first_name(evt=None):
+            v = entries["First Name"].get().strip()
+            if not v or len(v) < 3 or not v.replace(" ", "").isalpha():
+                error_labels["First Name"].config(text="Min 3 letters, alphabets only")
+                return False
+            error_labels["First Name"].config(text="")
+            return True
+
+        def validate_last_name(evt=None):
+            v = entries["Last Name"].get().strip()
+            if not v or len(v) < 3 or not v.replace(" ", "").isalpha():
+                error_labels["Last Name"].config(text="Min 3 letters, alphabets only")
+                return False
+            error_labels["Last Name"].config(text="")
+            return True
+
+        def validate_address(evt=None):
+            v = entries["Address"].get().strip()
+            if not v or len(v) < 10:
+                error_labels["Address"].config(text="Min 10 characters required")
+                return False
+            error_labels["Address"].config(text="")
+            return True
+
+        def validate_contact(evt=None):
+            v = entries["Contact Number"].get().strip()
+            if not (v.isdigit() and len(v) == 10):
+                error_labels["Contact Number"].config(text="Must be exactly 10 digits")
+                return False
+            error_labels["Contact Number"].config(text="")
+            return True
+
+        def validate_service(evt=None):
+            v = entries["Service"].get().strip()
+            if v not in entries["Service"]["values"]:
+                error_labels["Service"].config(text="Select a valid service")
+                return False
+            error_labels["Service"].config(text="")
+            return True
+
+        def validate_order_date(evt=None):
+            raw = entries["Order Date"].get().strip()
+            try:
+                d = datetime.strptime(raw, "%d-%m-%Y").date()
+                if d < date.today():
+                    error_labels["Order Date"].config(text="Date must be today or future")
+                    return False
+            except Exception:
+                error_labels["Order Date"].config(text="Invalid date")
+                return False
+            error_labels["Order Date"].config(text="")
+            return True
+
+        def validate_all():
+            ok = (validate_first_name() and validate_last_name() and validate_address()
+                  and validate_contact() and validate_service() and validate_order_date())
+            # enable/disable save button
+            try:
+                save_btn.config(state=tk.NORMAL if ok else tk.DISABLED)
+            except Exception:
+                pass
+            return ok
+
+        # Bind real-time for First Name & Contact Number
+        entries["First Name"].bind("<KeyRelease>", lambda e: (validate_first_name(), validate_all()))
+        entries["First Name"].bind("<FocusOut>", lambda e: (validate_first_name(), validate_all()))
+        entries["Contact Number"].bind("<KeyRelease>", lambda e: (validate_contact(), validate_all()))
+        entries["Contact Number"].bind("<FocusOut>", lambda e: (validate_contact(), validate_all()))
+
+        # Bind FocusOut for other fields
+        entries["Last Name"].bind("<FocusOut>", lambda e: (validate_last_name(), validate_all()))
+        entries["Address"].bind("<FocusOut>", lambda e: (validate_address(), validate_all()))
+        entries["Service"].bind("<<ComboboxSelected>>", lambda e: (validate_service(), validate_all()))
+        entries["Order Date"].bind("<FocusOut>", lambda e: (validate_order_date(), validate_all()))
+
+        # Buttons
+        def clear_form():
+            for k, w in entries.items():
+                if k == "Service":
+                    w.current(0)
+                elif k == "Order Date":
+                    w.set_date(date.today())
+                else:
+                    w.delete(0, END)
+                error_labels[k].config(text="")
+            form_status.config(text="Form cleared.", fg="green")
+            validate_all()
+
+        def save_order():
+            if not validate_all():
+                form_status.config(text="Please fix errors before saving.", fg="red")
+                return
+            # collect
+            firstname = entries["First Name"].get().strip()
+            lastname = entries["Last Name"].get().strip()
+            address = entries["Address"].get().strip()
+            contact = entries["Contact Number"].get().strip()
+            service = entries["Service"].get().strip()
+            raw_date = entries["Order Date"].get().strip()
+            try:
+                formatted_date = datetime.strptime(raw_date, "%d-%m-%Y").strftime("%Y-%m-%d")
+            except Exception:
+                form_status.config(text="Invalid date format.", fg="red")
+                return
+
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO interiors (Firstname, Lastname, Address, ContactNo, service, DateRequired)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (firstname, lastname, address, contact, service, formatted_date)
+                )
+                conn.commit()
+                conn.close()
+                form_status.config(text="Order placed successfully!", fg="green")
+                clear_form()
+            except Exception as e:
+                form_status.config(text=f"DB Error: {e}", fg="red")
+
+        button_frame = tk.Frame(center_frame, bg="#f8f9fa")
+        button_frame.grid(row=len(labels) + 2, column=0, columnspan=2, pady=10)
+        save_btn = ttk.Button(button_frame, text="Save", command=save_order)
+        save_btn.pack(side=tk.LEFT, padx=8)
+        ttk.Button(button_frame, text="Clear", command=clear_form).pack(side=tk.LEFT, padx=8)
+
+        # initialize button state
+        validate_all()
+
+    # ---------- UPDATE ----------
+    def update_order_window(self):
+        self.home_frame.pack_forget()
+        self.form_frame.pack(fill="both", expand=True, padx=40, pady=20)
+        self.clear_form_frame()
+        center_frame = tk.Frame(self.form_frame, bg="#f8f9fa")
+        center_frame.place(relx=0.5, rely=0.5, anchor="center")
+
+        tk.Label(center_frame, text="Enter Order ID", font=("Segoe UI", 11), bg="#f8f9fa").grid(row=0, column=0, pady=8, sticky=E)
+        id_entry = ttk.Entry(center_frame, width=30)
+        id_entry.grid(row=0, column=1, pady=8, padx=10, sticky=W)
+
+        labels = ["First Name", "Last Name", "Address", "Contact Number", "Service", "Order Date"]
+        entries = {}
+        error_labels = {}
+
+        for i, lbl in enumerate(labels):
+            tk.Label(center_frame, text=lbl, font=("Segoe UI", 11), bg="#f8f9fa").grid(row=i+1, column=0, pady=8, sticky=E)
+            if lbl == "Service":
+                entries[lbl] = ttk.Combobox(center_frame,
+                                            values=["Interior Designing", "Painting", "Renovation",
+                                                    "Custom Furnishing", "Plumbing", "Exterior Designing"],
+                                            state="readonly", width=27)
+                entries[lbl].grid(row=i+1, column=1, pady=8, padx=10, sticky=W)
+                entries[lbl].current(0)
+            elif lbl == "Order Date":
+                entries[lbl] = DateEntry(center_frame, width=27, date_pattern="dd-mm-yyyy")
+                entries[lbl].grid(row=i+1, column=1, pady=8, padx=10, sticky=W)
+            else:
+                entries[lbl] = ttk.Entry(center_frame, width=30)
+                entries[lbl].grid(row=i+1, column=1, pady=8, padx=10, sticky=W)
+
+            error_labels[lbl] = tk.Label(center_frame, text="", fg="red", bg="#f8f9fa", font=("Segoe UI", 9))
+            error_labels[lbl].grid(row=i+1, column=2, padx=5, sticky=W)
+
+        form_status = tk.Label(center_frame, text="", bg="#f8f9fa", font=("Segoe UI", 11))
+        form_status.grid(row=len(labels) + 3, column=0, columnspan=2, pady=6)
+
+        # validation definitions (reuse same rules)
+        def validate_first_name():
+            v = entries["First Name"].get().strip()
+            if not v or len(v) < 3 or not v.replace(" ", "").isalpha():
+                error_labels["First Name"].config(text="Min 3 letters, alphabets only")
+                return False
+            error_labels["First Name"].config(text="")
+            return True
+
+        def validate_last_name():
+            v = entries["Last Name"].get().strip()
+            if not v or len(v) < 3 or not v.replace(" ", "").isalpha():
+                error_labels["Last Name"].config(text="Min 3 letters, alphabets only")
+                return False
+            error_labels["Last Name"].config(text="")
+            return True
+
+        def validate_address():
+            v = entries["Address"].get().strip()
+            if not v or len(v) < 10:
+                error_labels["Address"].config(text="Min 10 characters required")
+                return False
+            error_labels["Address"].config(text="")
+            return True
+
+        def validate_contact():
+            v = entries["Contact Number"].get().strip()
+            if not (v.isdigit() and len(v) == 10):
+                error_labels["Contact Number"].config(text="Must be exactly 10 digits")
+                return False
+            error_labels["Contact Number"].config(text="")
+            return True
+
+        def validate_service():
+            v = entries["Service"].get().strip()
+            if v not in entries["Service"]["values"]:
+                error_labels["Service"].config(text="Select a valid service")
+                return False
+            error_labels["Service"].config(text="")
+            return True
+
+        def validate_order_date():
+            raw = entries["Order Date"].get().strip()
+            try:
+                d = datetime.strptime(raw, "%d-%m-%Y").date()
+            except Exception:
+                error_labels["Order Date"].config(text="Invalid date")
+                return False
+            error_labels["Order Date"].config(text="")
+            return True
+
+        def validate_all():
+            ok = (validate_first_name() and validate_last_name() and validate_address()
+                  and validate_contact() and validate_service() and validate_order_date())
+            try:
+                update_btn.config(state=tk.NORMAL if ok else tk.DISABLED)
+            except Exception:
+                pass
+            return ok
+
+        # Bind real-time for first name and contact in update form too
+        entries["First Name"].bind("<KeyRelease>", lambda e: (validate_first_name(), validate_all()))
+        entries["First Name"].bind("<FocusOut>", lambda e: (validate_first_name(), validate_all()))
+        entries["Contact Number"].bind("<KeyRelease>", lambda e: (validate_contact(), validate_all()))
+        entries["Contact Number"].bind("<FocusOut>", lambda e: (validate_contact(), validate_all()))
+
+        # FocusOut for others
+        entries["Last Name"].bind("<FocusOut>", lambda e: (validate_last_name(), validate_all()))
+        entries["Address"].bind("<FocusOut>", lambda e: (validate_address(), validate_all()))
+        entries["Service"].bind("<<ComboboxSelected>>", lambda e: (validate_service(), validate_all()))
+        entries["Order Date"].bind("<FocusOut>", lambda e: (validate_order_date(), validate_all()))
+
+        def search_order():
+            sid = id_entry.get().strip()
+            if not sid:
+                form_status.config(text="Please enter an Order ID.", fg="red")
+                return
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT Order_ID, Firstname, Lastname, Address, ContactNo, service, DateRequired FROM interiors WHERE Order_ID=%s", (sid,))
+                row = cursor.fetchone()
+                if row:
+                    entries["First Name"].delete(0, END); entries["First Name"].insert(0, row.get('Firstname', ''))
+                    entries["Last Name"].delete(0, END); entries["Last Name"].insert(0, row.get('Lastname', ''))
+                    entries["Address"].delete(0, END); entries["Address"].insert(0, row.get('Address', ''))
+                    entries["Contact Number"].delete(0, END); entries["Contact Number"].insert(0, row.get('ContactNo', ''))
+
+                    service_val = row.get('service')
+                    if service_val in entries["Service"]["values"]:
+                        entries["Service"].set(service_val)
+                    else:
+                        if entries["Service"]["values"]:
+                            entries["Service"].set(entries["Service"]["values"][0])
+
+                    dt = row.get('DateRequired')
+                    if isinstance(dt, (datetime, date)):
+                        entries["Order Date"].set_date(dt)
+                    else:
+                        try:
+                            parsed = datetime.strptime(str(dt), "%Y-%m-%d")
+                            entries["Order Date"].set_date(parsed)
+                        except Exception:
+                            pass
+
+                    form_status.config(text="Order found. You can update the fields.", fg="green")
+                    validate_all()
+                else:
+                    form_status.config(text="Order not found.", fg="red")
+            except Exception as e:
+                form_status.config(text=f"Error: {e}", fg="red")
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+        def update_order():
+            sid = id_entry.get().strip()
+            if not sid:
+                form_status.config(text="Please enter an Order ID.", fg="red")
+                return
+            if not validate_all():
+                form_status.config(text="Please correct errors before updating.", fg="red")
+                return
+
+            firstname = entries["First Name"].get().strip()
+            lastname = entries["Last Name"].get().strip()
+            address = entries["Address"].get().strip()
+            contact = entries["Contact Number"].get().strip()
+            service = entries["Service"].get().strip()
+            raw_date = entries["Order Date"].get().strip()
+
+            try:
+                formatted_date = datetime.strptime(raw_date, "%d-%m-%Y").strftime("%Y-%m-%d")
+            except Exception:
+                form_status.config(text="Invalid date format.", fg="red")
+                return
+
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    UPDATE interiors
+                    SET Firstname=%s, Lastname=%s, Address=%s, ContactNo=%s, service=%s, DateRequired=%s
+                    WHERE Order_ID=%s
+                    """,
+                    (firstname, lastname, address, contact, service, formatted_date, sid)
+                )
+                conn.commit()
+                form_status.config(text="Order updated successfully!", fg="green")
+            except Exception as e:
+                form_status.config(text=f"DB Error: {e}", fg="red")
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+        btn_frame = tk.Frame(center_frame, bg="#f8f9fa")
+        btn_frame.grid(row=len(labels) + 2, column=0, columnspan=2, pady=12)
+        ttk.Button(btn_frame, text="Search", command=search_order).pack(side=tk.LEFT, padx=6)
+        update_btn = ttk.Button(btn_frame, text="Update", command=update_order)
+        update_btn.pack(side=tk.LEFT, padx=6)
+
+        # initialize update button state
+        validate_all()
+
+    # ---------- DELETE ----------
+    def delete_order_window(self):
+        self.home_frame.pack_forget()
+        self.form_frame.pack(fill="both", expand=True, padx=40, pady=20)
+        self.clear_form_frame()
+        container = tk.Frame(self.form_frame, bg="#f8f9fa")
+        container.place(relx=0.5, rely=0.45, anchor="center")
+
+        tk.Label(container, text="Enter Order ID", font=("Segoe UI", 11), bg="#f8f9fa").grid(row=0, column=0, pady=6)
+        id_entry = ttk.Entry(container, width=30)
+        id_entry.grid(row=0, column=1, pady=6)
+
+        details_label = tk.Label(container, text="", bg="#f8f9fa", font=("Segoe UI", 11), justify="left")
+        details_label.grid(row=2, column=0, columnspan=2, pady=8)
+
+        def delete_order():
+            sid = id_entry.get().strip()
+            if not sid:
+                details_label.config(text="Please enter an Order ID.", fg="red")
+                return
+
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM interiors WHERE Order_ID=%s", (sid,))
+                affected = cursor.rowcount
+                conn.commit()
+                if affected:
+                    details_label.config(text="Order cancelled successfully!", fg="green")
+                else:
+                    details_label.config(text="No record found for this ID.", fg="red")
+            except Exception as e:
+                details_label.config(text=f"DB Error: {e}", fg="red")
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+        def show_details():
+            sid = id_entry.get().strip()
+            if not sid:
+                details_label.config(text="Please enter an Order ID.", fg="red")
+                return
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT Firstname, Lastname, Address, ContactNo, service, DateRequired FROM interiors WHERE Order_ID=%s", (sid,))
+                row = cursor.fetchone()
+                if row:
+                    dt = row.get('DateRequired')
+                    if isinstance(dt, (datetime, date)):
+                        dt_display = dt.strftime("%d-%m-%Y")
+                    else:
+                        dt_display = str(dt) if dt else ""
+                    txt = (
+                        f"First Name:\t{row.get('Firstname', '')}\n"
+                        f"Last Name:\t{row.get('Lastname', '')}\n"
+                        f"Address:\t\t{row.get('Address', '')}\n"
+                        f"Contact Number:\t{row.get('ContactNo', '')}\n"
+                        f"Service:\t\t{row.get('service', '')}\n"
+                        f"Order Date:\t{dt_display}"
+                    )
+                    details_label.config(text=txt, fg="black")
+                else:
+                    details_label.config(text="No record found for this ID.", fg="red")
+            except Exception as e:
+                details_label.config(text=f"Error fetching details: {e}", fg="red")
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+        btn_frame = tk.Frame(container, bg="#f8f9fa")
+        btn_frame.grid(row=1, column=0, columnspan=2, pady=8)
+        ttk.Button(btn_frame, text="Show Order", command=show_details).pack(side=tk.LEFT, padx=6)
+        ttk.Button(btn_frame, text="Cancel Order", command=delete_order).pack(side=tk.LEFT, padx=6)
+
+
+if __name__ == "__main__":
+    app = CRUDApp()
+    app.mainloop()
